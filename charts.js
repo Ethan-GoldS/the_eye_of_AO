@@ -349,10 +349,169 @@ function createSupplyChart() {
     });
 }
 
+/**
+ * Creates a multi-line chart for Rune Realm Streaks data
+ * @param {string} processName - The name of the process
+ * @returns {Object} Chart instance
+ */
+function createMultiLineChart(processName) {
+    const canvasId = processName + 'Chart';
+    const ctx = document.getElementById(canvasId)?.getContext('2d');
+    
+    if (!ctx) {
+        console.error(`Cannot create chart: Canvas element ${canvasId} not found`);
+        return null;
+    }
+    
+    return new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                {
+                    label: 'Dummy', // Will be filtered from legend
+                    data: [],
+                    borderColor: 'rgba(0,0,0,0)', // Completely transparent
+                    backgroundColor: 'rgba(0,0,0,0)',
+                    fill: false,
+                    tension: 0,
+                    borderWidth: 0,
+                    pointRadius: 0,
+                    hidden: true // Hide from chart
+                },
+                {
+                    label: 'Low',
+                    data: [],
+                    borderColor: 'rgb(75, 192, 192)',
+                    backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                    fill: false,
+                    tension: 0.2,
+                    borderWidth: 3
+                },
+                {
+                    label: 'Medium',
+                    data: [],
+                    borderColor: 'rgb(255, 159, 64)',
+                    backgroundColor: 'rgba(255, 159, 64, 0.1)',
+                    fill: false,
+                    tension: 0.2,
+                    borderWidth: 3
+                },
+                {
+                    label: 'High',
+                    data: [],
+                    borderColor: 'rgb(255, 99, 132)',
+                    backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                    fill: false,
+                    tension: 0.2,
+                    borderWidth: 3
+                },
+                {
+                    label: 'Total',
+                    data: [],
+                    borderColor: 'rgb(153, 102, 255)',
+                    backgroundColor: 'rgba(153, 102, 255, 0.1)',
+                    fill: false,
+                    tension: 0.2,
+                    borderWidth: 4,
+                    borderDash: [5, 5]
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                title: {
+                    display: true,
+                    text: getProcessDisplayName(processName),
+                    font: {
+                        size: 16,
+                        weight: 'bold'
+                    },
+                    padding: {
+                        top: 10,
+                        bottom: 10
+                    }
+                },
+                legend: {
+                    display: true,
+                    position: 'top',
+                    labels: {
+                        usePointStyle: true,
+                        pointStyle: 'line',
+                        pointRadius: 5
+                    },
+                    // Override the entire legend generation to exclude the first dataset
+                    labels: {
+                        generateLabels: function(chart) {
+                            // Skip the first dataset (dummy) and just generate legend items for the rest
+                            const datasets = chart.data.datasets.slice(1);
+                            const labels = [];
+                            
+                            datasets.forEach((dataset, i) => {
+                                if (dataset.hidden) return;
+                                
+                                labels.push({
+                                    text: dataset.label,
+                                    fillStyle: dataset.borderColor,
+                                    strokeStyle: dataset.borderColor,
+                                    lineWidth: dataset.borderWidth || 2,
+                                    hidden: dataset.hidden,
+                                    index: i + 1, // Add 1 to match the actual dataset index
+                                    datasetIndex: i + 1 // Add 1 to match the actual dataset index
+                                });
+                            });
+                            
+                            return labels;
+                        }
+                    }
+                },
+                tooltip: {
+                    callbacks: createMultiLineTooltipCallbacks()
+                }
+            },
+            scales: createAxesConfig()
+        }
+    });
+}
+
+/**
+ * Creates tooltip callbacks for a multi-line chart
+ * @returns {Object} Tooltip callback functions
+ */
+function createMultiLineTooltipCallbacks() {
+    return {
+        label: function(context) {
+            const label = context.dataset.label || '';
+            const value = context.raw;
+            return `${label}: ${value}`;
+        },
+        title: function(context) {
+            const dataIndex = context[0].dataIndex;
+            if (historicalData['runeRealm'] && historicalData['runeRealm'][dataIndex]) {
+                const date = new Date(historicalData['runeRealm'][dataIndex].timestamp);
+                // Format the tooltip to show detailed date info
+                const fullDate = date.toLocaleDateString('en-US', {
+                    weekday: 'short',
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                });
+                return `${fullDate}`;
+            }
+            return context[0].label || '';
+        }
+    };
+}
+
 export async function fetchChartData(processName, timeRange) {
     if (processName === 'stargrid') {
-        // For Stargrid, use your new function
+        // For Stargrid, use specific function
         await updateStargridChart();
+    } else if (processName === 'runeRealm') {
+        // For Rune Realm, use specific function
+        await updateRuneRealmChart();
     } else {
         console.log(`Using fetchAdditionalData for ${processName}`);
         await fetchAdditionalData(processName, timeRange);
@@ -384,6 +543,116 @@ export async function updateStargridChart() {
     }
 }
 
+/**
+ * Updates the Rune Realm Streaks chart with data
+ */
+export async function updateRuneRealmChart() {
+    try {
+        toggleChartLoader('runeRealm', true);
+
+        // Import fetchRuneRealmStats from api.js
+        const { fetchRuneRealmStats } = await import('./api.js');
+        const runeRealmData = await fetchRuneRealmStats();
+        if (!runeRealmData) throw new Error('Failed to fetch Rune Realm data');
+
+        // Store the full data set
+        historicalData['runeRealm'] = runeRealmData;
+
+        const chart = charts['runeRealm'];
+        if (!chart) {
+            console.error('No Rune Realm chart found');
+            return;
+        }
+
+        // Sort data chronologically
+        const sortedData = [...runeRealmData].sort((a, b) => {
+            return new Date(a.timestamp) - new Date(b.timestamp);
+        });
+
+        console.log('Rune Realm sorted data:', sortedData.length, 'points');
+
+        // Apply the current time range filter
+        const timeRange = getChartTimeRange('runeRealm');
+        let filteredData = sortedData;
+
+        // Only apply time filtering if we have enough data points
+        if (sortedData.length > 3) {
+            const filtered = filterDataByTimeRange(sortedData, timeRange);
+            // Make sure we have at least some data to show
+            if (filtered.length > 0) {
+                filteredData = filtered;
+            }
+        }
+
+        console.log('Rune Realm filtered data:', filteredData.length, 'points for time range:', timeRange);
+
+        // Create labels from timestamps with more detailed formatting
+        const labels = filteredData.map(d => {
+            // Ensure we have a valid date by explicitly parsing
+            const date = new Date(d.timestamp);
+            
+            // Format day-month for chart labels (don't show year to save space)
+            const month = date.toLocaleString('default', { month: 'short' });
+            const day = date.getDate();
+            
+            // Log to verify correct date mapping
+            console.log(`Mapping day ${d.day} (${d.timestamp}) to: ${month} ${day}`);
+            
+            return `${month} ${day}`;
+        });
+        
+        console.log('Chart labels:', labels);
+
+        // Get the data values for each dataset - ensure defaults of 0 for missing values
+        const lowData = filteredData.map(d => d.breakdowns.Low !== undefined ? d.breakdowns.Low : 0);
+        const mediumData = filteredData.map(d => d.breakdowns.Medium !== undefined ? d.breakdowns.Medium : 0);
+        const highData = filteredData.map(d => d.breakdowns.High !== undefined ? d.breakdowns.High : 0);
+        
+        // Calculate total for each data point
+        const totalData = filteredData.map(d => {
+            const low = d.breakdowns.Low !== undefined ? d.breakdowns.Low : 0;
+            const medium = d.breakdowns.Medium !== undefined ? d.breakdowns.Medium : 0;
+            const high = d.breakdowns.High !== undefined ? d.breakdowns.High : 0;
+            return low + medium + high;
+        });
+
+        console.log('Dataset sizes - Low:', lowData.length, 'Medium:', mediumData.length, 
+                   'High:', highData.length, 'Total:', totalData.length);
+
+        // Update chart data
+        chart.data.labels = labels;
+        
+        // Keep the dummy dataset empty but ensure proper length
+        chart.data.datasets[0].data = new Array(labels.length).fill(0);
+        chart.data.datasets[1].data = lowData;
+        chart.data.datasets[2].data = mediumData;
+        chart.data.datasets[3].data = highData;
+        chart.data.datasets[4].data = totalData;
+
+        // Configure x-axis to make sure data spans full width
+        chart.options.scales.x.min = 0;
+        chart.options.scales.x.max = labels.length - 1;
+        
+        // Configure x-axis ticks to ensure dates are shown correctly
+        chart.options.scales.x.ticks = {
+            maxRotation: 45,
+            minRotation: 45,
+            autoSkip: false,
+            callback: function(value, index) {
+                // Return the pre-formatted label
+                return labels[index];
+            }
+        };
+
+        // Update the chart with animation disabled for performance
+        chart.update('none');
+
+        toggleChartLoader('runeRealm', false);
+    } catch (error) {
+        console.error('Error updating Rune Realm chart:', error);
+        toggleChartLoader('runeRealm', false);
+    }
+}
 
 /**
  * Initialize all charts based on process definitions
@@ -401,6 +670,9 @@ export function initializeCharts() {
     
     // Special case: wAR total supply chart
     charts['wARTotalSupply'] = createSupplyChart();
+    
+    // Special case: Rune Realm Streaks multi-line chart
+    charts['runeRealm'] = createMultiLineChart('runeRealm');
     
     // Standard charts for remaining processes
     ['wARweeklyTransfer', 'wARTransfer', 'AOTransfer', 'permaswap', 'botega', 'llamaLand', 'stargrid'].forEach(processName => {

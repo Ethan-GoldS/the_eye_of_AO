@@ -805,10 +805,45 @@ async function initializeDashboard() {
             console.error("Error loading Stargrid chart:", error);
             toggleChartLoader('stargrid', false);
         });
+        
+        // Load Rune Realm Streaks chart
+        loadRuneRealmChart().catch(error => {
+            console.error("Error loading Rune Realm chart:", error);
+            toggleChartLoader('runeRealm', false);
+        });
 
     } catch (error) {
         console.error('Error initializing dashboard:', error);
         toggleMainLoader(false); // Ensure loader is removed even if there's an error
+    }
+}
+
+/**
+ * Loads the Rune Realm Streaks chart with data
+ * @returns {Promise<void>} Resolves when chart is loaded
+ */
+async function loadRuneRealmChart() {
+    try {
+        console.log("Loading Rune Realm Streaks chart...");
+        toggleChartLoader('runeRealm', true);
+        
+        // Import fetchRuneRealmStats from api.js
+        const fetchRuneRealmStats = await import('./api.js').then(m => m.fetchRuneRealmStats);
+        const runeRealmData = await fetchRuneRealmStats();
+        console.log(`Loaded Rune Realm data: ${runeRealmData.length} points`);
+        
+        // Update historical data
+        if (runeRealmData.length > 0) {
+            historicalData['runeRealm'] = runeRealmData;
+            
+            // Update the chart (imported from charts.js)
+            const updateRuneRealmChart = await import('./charts.js').then(m => m.updateRuneRealmChart);
+            await updateRuneRealmChart();
+        }
+    } catch (error) {
+        console.error("Error loading Rune Realm chart:", error);
+    } finally {
+        toggleChartLoader('runeRealm', false);
     }
 }
 
