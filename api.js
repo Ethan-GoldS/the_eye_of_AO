@@ -1,13 +1,14 @@
 /**
  * API functions for fetching data from Arweave and AO Network
  */
-import { dryrun } from "https://unpkg.com/@permaweb/aoconnect@0.0.82/dist/browser.js";
+import { dryrun, connect } from "https://unpkg.com/@permaweb/aoconnect@0.0.82/dist/browser.js";
 import { BLOCK_TRACKING_PROCESS } from './config.js';
 import { generateQuery } from './processes.js';
 
 // Cache for API responses
 const responseCache = new Map();
 
+const getConnection = () => connect({ CU_URL: "https://ur-cu.randao.net" });
 /**
  * Fetches the current Arweave network information
  * @returns {Promise<Object>} Network info including current block height
@@ -242,6 +243,106 @@ export async function fetchProcessData(processName, periods, currentHeight) {
         return results;
     } catch (error) {
         console.error(`Error fetching process data for ${processName}:`, error);
+        throw error;
+    }
+}
+
+/**
+ * Fetches Rune Realm player streak data
+ * @returns {Promise<Array>} Array of daily streak data
+ */
+export async function fetchRuneRealmStats() {
+    try {
+        const cacheKey = 'runerealm-stats';
+        // Use cached data if it's less than 20 minutes old
+        if (responseCache.has(cacheKey)) {
+            const { data, timestamp } = responseCache.get(cacheKey);
+            if (Date.now() - timestamp < 20 * 60 * 1000) {
+                return data;
+            }
+        }
+        
+        const { dryrun } = getConnection();
+        // Fetch Rune Realm streak data from AO
+        const response = await dryrun({
+            process: 'GhNl98tr7ZQxIJHx4YcVdGh7WkT9dD7X4kmQOipvePQ',
+            data: '',
+            tags: [
+                { name: "Action", value: "GetCheckinMapping" },
+                { name: "Data-Protocol", value: "ao" },
+                { name: "Type", value: "Message" },
+                { name: "Variant", value: "ao.TN.1" }
+            ],
+        });
+        
+        // Verify we got a valid response
+        if (!response || !response.Messages || !response.Messages[0]) {
+            throw new Error('Invalid response from Rune Realm API');
+        }
+        
+        // Extract the streak data from the response
+        const dataStr = response.Messages[0].Data;
+        const rawData = JSON.parse(dataStr);
+        
+        if (!rawData.BreakdownByDay) {
+            throw new Error('Missing BreakdownByDay data in Rune Realm response');
+        }
+        
+        console.log('Raw Rune Realm data:', rawData);
+        
+        // Transform the data into the format expected by the chart
+        const streakData = [];
+        
+        // Convert days since Unix epoch to actual dates
+        Object.entries(rawData.BreakdownByDay).forEach(([day, breakdowns]) => {
+            // Day number represents days since Jan 1, 1970 (Unix epoch start)
+            // We need to multiply by milliseconds in a day (24*60*60*1000 = 86400000)
+            // Unix epoch starts at midnight UTC on January 1, 1970
+            const timestampMs = parseInt(day) * 86400000;
+            const timestamp = new Date(timestampMs);
+            
+            // Log the conversion for debugging
+            console.log(`Converting day ${day} to date: ${timestamp.toISOString()} (${timestamp.toLocaleDateString()})`);
+            
+            streakData.push({
+                timestamp,
+                day,
+                breakdowns
+            });
+        });
+        
+        // Sort by timestamp
+        streakData.sort((a, b) => a.timestamp - b.timestamp);
+        
+        // Log the processed data for debugging
+        console.log('Processed Rune Realm Streak Data:', JSON.stringify(streakData, null, 2));
+        
+        // Verify that all breakdowns have Low field
+        streakData.forEach((day, index) => {
+            console.log(`Day ${day.day} breakdown:`, day.breakdowns);
+            if (day.breakdowns.Low === undefined) {
+                console.warn(`Day ${day.day} is missing Low value! Adding default of 0.`);
+                day.breakdowns.Low = 0;
+            }
+            if (day.breakdowns.Medium === undefined) {
+                console.warn(`Day ${day.day} is missing Medium value! Adding default of 0.`);
+                day.breakdowns.Medium = 0;
+            }
+            if (day.breakdowns.High === undefined) {
+                console.warn(`Day ${day.day} is missing High value! Adding default of 0.`);
+                day.breakdowns.High = 0;
+            }
+        });
+        
+        // Cache the result
+        responseCache.set(cacheKey, {
+            data: streakData,
+            timestamp: Date.now()
+        });
+        
+        return streakData;
+    } catch (error) {
+        console.error("Error fetching Rune Realm stats:", error);
         throw error;
     }
 }

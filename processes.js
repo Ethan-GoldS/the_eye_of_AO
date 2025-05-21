@@ -4,6 +4,12 @@
 
 // Define processes with their query parameters
 export const PROCESSES = {
+    runeRealm: {
+        description: "Rune Realm Player Streaks",
+        displayName: "Rune Realm Streaks",
+        type: "hardcoded",
+        hasMultiLineData: true
+    },
     permaswap: {
         description: "Permaswap Order Notice Processes",
         protocol: "ao",
@@ -207,6 +213,11 @@ export async function generateQuery(processType, startHeight, endHeight, current
     const blockRange = endHeight === currentHeight 
         ? `block: { min: ${startHeight} }`
         : `block: { min: ${startHeight}, max: ${endHeight} }`;
+
+    // Hardcoded data for runeRealm
+    if (process.type === "hardcoded") {
+        return "hardcoded";
+    }
 
     switch(processType) {
         case 'permaswap': {

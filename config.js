@@ -12,7 +12,8 @@ export const CHART_COLORS = {
     stargrid: 'rgb(131, 86, 255)',
     AOTransfer: 'rgb(47, 243, 8)',
     wUSDCTransfer: 'rgb(19, 62, 252)',
-    USDATransfer: 'rgb(51, 139, 0)'
+    USDATransfer: 'rgb(51, 139, 0)',
+    runeRealm: 'rgb(75, 192, 192)'
 };
 
 // Time range values in milliseconds
