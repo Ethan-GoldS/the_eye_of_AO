@@ -262,6 +262,7 @@ export async function fetchRuneRealmStats() {
             }
         }
         
+        //Allow for the overrided connection object to have InfrAO's dryrun speed
         const { dryrun } = getConnection();
         // Fetch Rune Realm streak data from AO
         const response = await dryrun({
