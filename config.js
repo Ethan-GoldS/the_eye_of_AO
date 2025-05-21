@@ -1,7 +1,7 @@
 /**
  * Configuration constants for the Eye of AO dashboard
  */
-
+ 
 // Process colors for consistent chart styling
 export const CHART_COLORS = {
     permaswap: 'rgb(54, 162, 235)',
