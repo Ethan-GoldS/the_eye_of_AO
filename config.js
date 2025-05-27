@@ -7,15 +7,13 @@ export const CHART_COLORS = {
     permaswap: 'rgb(54, 162, 235)',
     botega: 'rgb(255, 99, 132)',
     wARTransfer: 'rgb(255, 159, 64)',
-    wARVolume: 'rgb(255, 159, 64)',
     wARweeklyTransfer: 'rgb(255, 159, 64)',
     llamaLand: 'rgb(255, 205, 86)',
     stargrid: 'rgb(131, 86, 255)',
     AOTransfer: 'rgb(47, 243, 8)',
-    AOVolume: 'rgb(47, 243, 8)',
     wUSDCTransfer: 'rgb(19, 62, 252)',
-    wUSDCVolume: 'rgb(19, 62, 252)',
-    USDATransfer: 'rgb(51, 139, 0)'
+    USDATransfer: 'rgb(51, 139, 0)',
+    runeRealmStreaks: 'rgb(75, 192, 192)'
 };
 
 // Time range values in milliseconds
@@ -25,23 +23,6 @@ export const TIME_RANGES = {
     '1M': 30 * 24 * 60 * 60 * 1000,    // 1 month in milliseconds
     '3M': 90 * 24 * 60 * 60 * 1000     // 3 months in milliseconds
 };
-
-export const UTC_TIMESTAMP_PROCESSES = [
-    'stargrid',
-    'wARVolume',
-    'AOVolume',
-    'wUSDCVolume'
-];
-
-export const NON_UTC_TIMESTAMP_PROCESSES = [
-    'wARTransfer',
-    'AOTransfer',
-    'permaswap',
-    'botega',
-    'llamaLand',
-    'wARTotalSupply'
-];
-
 
 // Default time range for all charts
 export const DEFAULT_TIME_RANGE = '1W';
