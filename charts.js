@@ -1,15 +1,15 @@
 /**
  * Chart creation and management for the Eye of AO dashboard
  */
-import { CHART_COLORS, CHART_DEFAULTS, TIME_FORMAT, UTC_TIMESTAMP_PROCESSES, NON_UTC_TIMESTAMP_PROCESSES } from './config.js';
+import { CHART_COLORS, CHART_DEFAULTS, TIME_FORMAT } from './config.js';
 import { formatDate, formatDateUTCWithLocalTime, filterDataByTimeRange } from './utils.js';
 import { getProcessDisplayName } from './processes.js';
 import { setupTimeRangeButtons, toggleChartLoader, getChartTimeRange } from './ui.js';
-import { fetchStargridStats, fetchVolumeData } from './api.js'
-import { fetchAdditionalData, updateVolumeChart, updateSupplyChart } from './index.js'
+import { fetchStargridStats } from './api.js'
+import { fetchAdditionalData } from './index.js'
 
 // Store all chart instances
-export const charts = {};
+const charts = {};
 
 // Historical data for each chart
 export const historicalData = {};
@@ -77,44 +77,20 @@ function createStandardTooltipCallbacks(processName) {
     return {
         label: function(context) {
             const dataIndex = context.dataIndex;
+            // Ensure we have data for this index
             if (!historicalData[processName] || !historicalData[processName][dataIndex]) {
-                return `Value: ${context.raw}`;
+                return `Count: ${context.raw}`;
             }
             
             const dataPoint = historicalData[processName][dataIndex];
+            const count = dataPoint.count;
             
-            // For volume charts, handle the value differently
-            if (['AOVolume', 'wARVolume', 'wUSDCVolume'].includes(processName)) {
-                // Ensure we have a numeric value
-                const rawValue = Number(dataPoint.value || dataPoint.count || context.raw || 0);
-                
-                if (isNaN(rawValue)) {
-                    console.warn(`Invalid value for ${processName}:`, dataPoint);
-                    return 'Invalid value';
-                }
-
-                // Format based on token type
-                if (['AOVolume', 'wARVolume'].includes(processName)) {
-                    const value = Math.floor(rawValue / Math.pow(10, 12));
-                    const tokenName = processName.replace('Volume', '');
-                    return `Volume: ${value.toLocaleString()} ${tokenName}`;
-                } else {
-                    const value = Math.floor(rawValue / Math.pow(10, 6));
-                    return `Volume: ${value.toLocaleString()} wUSDC`;
-                }
-            }
-            
-            // For non-volume charts, use count
-            const count = dataPoint.count || 0;
-            const formattedValue = `Count: ${count.toLocaleString()}`;
-
-            // Add current time for latest entry
             if (dataIndex === historicalData[processName].length - 1) {
                 const currentTime = formatDate(new Date());
-                return `${formattedValue} (Current data as of ${currentTime})`;
+                return `Count: ${count} (Current data as of ${currentTime})`;
             }
-
-            return formattedValue;
+            
+            return `Count: ${count}`;
         },
         title: function(context) {
             const dataIndex = context[0].dataIndex;
@@ -125,17 +101,10 @@ function createStandardTooltipCallbacks(processName) {
             const dataPoint = historicalData[processName][dataIndex];
             if (!dataPoint) return context[0].label;
             
-            // Then use it in the tooltip callback
             const date = new Date(dataPoint.timestamp);
-            if (NON_UTC_TIMESTAMP_PROCESSES.includes(processName)) {
-                // Add one day for non-UTC processes
-                const adjustedDate = new Date(date.getTime());
-                return formatDate(adjustedDate, TIME_FORMAT.tooltip);
-            } else if (UTC_TIMESTAMP_PROCESSES.includes(processName)) {
-                return formatDateUTCWithLocalTime(date);
-            } else {
-                return formatDate(date, TIME_FORMAT.tooltip);
-            }
+            return processName === 'stargrid'
+            ? formatDateUTCWithLocalTime(date)
+            : formatDate(date, TIME_FORMAT.tooltip);
         }
     };
 }
@@ -154,6 +123,43 @@ function createSupplyTooltipCallbacks() {
     };
 }
 
+/**
+ * Creates tooltip callbacks for a multi-line chart
+ * @param {string} processName - The process name
+ * @returns {Object} Tooltip callback functions
+ */
+function createMultiLineTooltipCallbacks(processName) {
+    return {
+        label: function(context) {
+            // Skip the placeholder dataset
+            if (context.datasetIndex === 0) return null;
+            
+            const datasetIndex = context.datasetIndex;
+            const dataIndex = context.dataIndex;
+            const dataset = context.chart.data.datasets[datasetIndex];
+            
+            const data = historicalData[processName];
+            if (!data || dataIndex >= data.length) return `${dataset.label}: ${context.raw}`;
+            
+            // Get the value for this dataset and date
+            return `${dataset.label}: ${context.raw}`;
+        },
+        title: function(context) {
+            const dataIndex = context[0].dataIndex;
+            const data = historicalData[processName];
+            
+            if (!data || dataIndex >= data.length) return context[0].label;
+            
+            // Format the date nicely
+            const date = new Date(data[dataIndex].timestamp);
+            return formatDate(date, TIME_FORMAT.tooltip);
+        },
+        filter: function(tooltipItem) {
+            // Filter out the placeholder dataset
+            return tooltipItem.datasetIndex !== 0;
+        }
+    };
+}
 
 /**
  * Creates a legend configuration that uses the correct colors
@@ -320,6 +326,93 @@ function createCombinedChart(primaryProcess, secondaryProcess) {
 }
 
 /**
+ * Creates a multi-line chart for Rune Realm Streaks
+ * @returns {Object} Chart instance
+ */
+function createMultiLineChart() {
+    const canvasId = 'runeRealmStreaksChart';
+    const ctx = document.getElementById(canvasId)?.getContext('2d');
+    
+    if (!ctx) {
+        console.error(`Cannot create chart: Canvas element ${canvasId} not found`);
+        return null;
+    }
+    
+    // Initialize historical data if not already done
+    if (!historicalData['runeRealmStreaks']) {
+        historicalData['runeRealmStreaks'] = [];
+    }
+    
+    // Set up the datasets with a placeholder dataset in the first position
+    // This is a workaround for Chart.js to ensure proper display
+    return new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                {
+                    // Placeholder dataset (invisible)
+                    label: 'Placeholder',
+                    data: [],
+                    borderColor: 'rgba(0,0,0,0)',
+                    pointRadius: 0,
+                    hidden: true
+                },
+                {
+                    label: 'Low',
+                    data: [],
+                    borderColor: 'rgb(75, 192, 192)',
+                    tension: CHART_DEFAULTS.tension,
+                    pointRadius: CHART_DEFAULTS.pointRadius
+                },
+                {
+                    label: 'Medium',
+                    data: [],
+                    borderColor: 'rgb(255, 159, 64)',
+                    tension: CHART_DEFAULTS.tension,
+                    pointRadius: CHART_DEFAULTS.pointRadius
+                },
+                {
+                    label: 'High',
+                    data: [],
+                    borderColor: 'rgb(255, 99, 132)',
+                    tension: CHART_DEFAULTS.tension,
+                    pointRadius: CHART_DEFAULTS.pointRadius
+                },
+                {
+                    label: 'Total',
+                    data: [],
+                    borderColor: 'rgb(54, 162, 235)',
+                    tension: CHART_DEFAULTS.tension,
+                    pointRadius: CHART_DEFAULTS.pointRadius
+                }
+            ]
+        },
+        options: {
+            responsive: CHART_DEFAULTS.responsive,
+            maintainAspectRatio: CHART_DEFAULTS.maintainAspectRatio,
+            scales: createAxesConfig(),
+            plugins: {
+                legend: {
+                    ...createLegendConfig(),
+                    // Custom legend generation to filter out placeholder dataset
+                    labels: {
+                        ...createLegendConfig().labels,
+                        filter: function(item, chart) {
+                            // Filter out the placeholder dataset
+                            return item.datasetIndex !== 0;
+                        }
+                    }
+                },
+                tooltip: {
+                    callbacks: createMultiLineTooltipCallbacks('runeRealmStreaks')
+                }
+            }
+        }
+    });
+}
+
+/**
  * Creates a supply chart for wAR
  * @returns {Object} Chart instance
  */
@@ -380,48 +473,95 @@ function createSupplyChart() {
     });
 }
 
-
 export async function fetchChartData(processName, timeRange) {
-    if (['stargrid', 'AOVolume', 'wARVolume', 'wUSDCVolume'].includes(processName)) {
-        await updateChartWithStats(processName);
+    if (processName === 'stargrid') {
+        // For Stargrid, use the dedicated function
+        await updateStargridChart();
+    } else if (processName === 'runeRealmStreaks') {
+        // For Rune Realm Streaks, use the dedicated function
+        await updateRuneRealmChart();
     } else {
         console.log(`Using fetchAdditionalData for ${processName}`);
         await fetchAdditionalData(processName, timeRange);
     }
 }
 
-export async function updateChartWithStats(processName) {
+
+export async function updateStargridChart() {
     try {
-        toggleChartLoader(processName, true);
+        toggleChartLoader('stargrid', true);
 
-        let data;
-        if (processName === 'stargrid') {
-            data = await fetchStargridStats();
-        } else if (['AOVolume', 'wARVolume', 'wUSDCVolume'].includes(processName)) {
-            const volumeData = await updateVolumeChart(processName);
-            const tokenType = processName.replace('Volume', '');
-            // Use the full dataset
-            data = volumeData[tokenType].map(entry => ({
-                timestamp: entry.timestamp,
-                count: entry.value
-            }));
-            console.log(`Processing ${data.length} entries for ${processName}`);
-        }
+        const stargridData = await fetchStargridStats();
+        if (!stargridData) throw new Error('Failed to fetch stargrid data');
 
-        if (!data) throw new Error(`Failed to fetch ${processName} data`);
+        const formatted = stargridData.map(entry => ({
+            ...entry,
+            timestamp: new Date(entry.timestamp).toISOString()
+        }));
 
-        // Store the complete dataset
-        historicalData[processName] = data;
+        historicalData['stargrid'] = formatted;
 
-        // Get and apply time range
-        const timeRange = getChartTimeRange(processName);
-        console.log(`Updating ${processName} with time range: ${timeRange}`);
-        updateChartTimeRange(processName, timeRange || '1M');
+        const timeRange = getChartTimeRange('stargrid');
+        updateChartTimeRange('stargrid', timeRange);
 
-        toggleChartLoader(processName, false);
+        toggleChartLoader('stargrid', false);
     } catch (error) {
-        console.error(`Error updating ${processName} chart:`, error);
-        toggleChartLoader(processName, false);
+        console.error('Error updating Stargrid chart:', error);
+        toggleChartLoader('stargrid', false);
+    }
+}
+
+/**
+ * Updates the Rune Realm Streaks chart with data from the AO process
+ */
+export async function updateRuneRealmChart() {
+    try {
+        toggleChartLoader('runeRealmStreaks', true);
+
+        // Import the fetchRuneRealmStats function from api.js
+        const { fetchRuneRealmStats } = await import('./api.js');
+        const historyData = await fetchRuneRealmStats();
+        
+        if (!historyData) throw new Error('Failed to fetch Rune Realm data');
+        
+        // Transform the data into a format suitable for the chart
+        // Example data format from AO: {'20226': { Medium: 0, High: 3, Low: 11 }, ...}
+        const formattedData = [];
+        
+        // Convert unix day numbers to actual dates and structure the data for the chart
+        Object.entries(historyData).forEach(([day, stats]) => {
+            // Convert the unix day number to a JavaScript Date
+            // Unix day is number of days since Unix epoch (Jan 1, 1970)
+            const dayNumber = parseInt(day, 10);
+            const timestamp = new Date(dayNumber * 24 * 60 * 60 * 1000);
+            
+            // Calculate the total for all categories
+            const total = (stats.Low || 0) + (stats.Medium || 0) + (stats.High || 0);
+            
+            formattedData.push({
+                timestamp: timestamp.toISOString(),
+                day: dayNumber,
+                Low: stats.Low || 0,
+                Medium: stats.Medium || 0,
+                High: stats.High || 0,
+                Total: total
+            });
+        });
+        
+        // Sort by timestamp ascending
+        formattedData.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+        
+        // Store in historicalData for tooltip access and filtering
+        historicalData['runeRealmStreaks'] = formattedData;
+        
+        // Apply time range filter and update chart
+        const timeRange = getChartTimeRange('runeRealmStreaks');
+        updateMultiLineChart(timeRange);
+        
+        toggleChartLoader('runeRealmStreaks', false);
+    } catch (error) {
+        console.error('Error updating Rune Realm Streaks chart:', error);
+        toggleChartLoader('runeRealmStreaks', false);
     }
 }
 
@@ -429,6 +569,55 @@ export async function updateChartWithStats(processName) {
 /**
  * Initialize all charts based on process definitions
  */
+/**
+ * Updates the multi-line chart for Rune Realm Streaks
+ * @param {string} timeRange - The selected time range
+ */
+export function updateMultiLineChart(timeRange) {
+    const chart = charts['runeRealmStreaks'];
+    if (!chart) {
+        console.error('No chart found for Rune Realm Streaks');
+        return;
+    }
+    
+    const data = historicalData['runeRealmStreaks'] || [];
+    if (data.length === 0) {
+        console.warn('No data available for Rune Realm Streaks');
+        return;
+    }
+    
+    // Filter data by time range
+    const filteredData = filterDataByTimeRange(data, timeRange);
+    
+    // Ensure data is sorted chronologically
+    const sortedData = [...filteredData].sort((a, b) => {
+        return new Date(a.timestamp) - new Date(b.timestamp);
+    });
+    
+    // Create labels from timestamps
+    const labels = sortedData.map(d => {
+        const date = new Date(d.timestamp);
+        return formatDate(date);
+    });
+    
+    // Extract values for each streak category
+    const lowValues = sortedData.map(d => d.Low);
+    const mediumValues = sortedData.map(d => d.Medium);
+    const highValues = sortedData.map(d => d.High);
+    const totalValues = sortedData.map(d => d.Total);
+    
+    // Update chart datasets (remember to keep the placeholder dataset at index 0)
+    chart.data.labels = labels;
+    chart.data.datasets[0].data = new Array(labels.length).fill(0); // Placeholder data
+    chart.data.datasets[1].data = lowValues;
+    chart.data.datasets[2].data = mediumValues;
+    chart.data.datasets[3].data = highValues;
+    chart.data.datasets[4].data = totalValues;
+    
+    // Update the chart with animation disabled for performance
+    chart.update('none');
+}
+
 export function initializeCharts() {
     // Clear any existing chart instances to prevent memory leaks
     Object.keys(charts).forEach(chartId => {
@@ -443,8 +632,11 @@ export function initializeCharts() {
     // Special case: wAR total supply chart
     charts['wARTotalSupply'] = createSupplyChart();
     
+    // Special case: Rune Realm Streaks multi-line chart
+    charts['runeRealmStreaks'] = createMultiLineChart();
+    
     // Standard charts for remaining processes
-    ['wUSDCVolume', 'wARweeklyTransfer', 'wARTransfer', 'wARVolume', 'AOTransfer','AOVolume', 'permaswap', 'botega', 'llamaLand', 'stargrid'].forEach(processName => {
+    ['wARweeklyTransfer', 'wARTransfer', 'AOTransfer', 'permaswap', 'botega', 'llamaLand', 'stargrid'].forEach(processName => {
         charts[processName] = createStandardChart(processName);
     });
 
@@ -459,7 +651,6 @@ export function initializeCharts() {
  * @param {Array} dataPoints - Array of data points
  */
 export function updateStandardChart(processName, dataPoints) {
-    console.log(`Updating chart for ${processName} with`, dataPoints);
     const chart = charts[processName];
     if (!chart) {
         console.error(`No chart found for process: ${processName}`);
@@ -477,23 +668,11 @@ export function updateStandardChart(processName, dataPoints) {
     // Create labels from timestamps
     const labels = sortedData.map(d => {
         const date = new Date(d.timestamp);
-        return ['stargrid', 'wARVolume', 'AOVolume', 'wUSDCVolume'].includes(processName) 
-        ? formatDateUTCWithLocalTime(date) 
-        : formatDate(date);
+        return processName === 'stargrid' ? formatDateUTCWithLocalTime(date) : formatDate(date);
     });
     
-    // Get the data values with proper decimal formatting
-    const values = sortedData.map(d => {
-        const rawValue = d.count || d.value || 0;
-        
-        // Format based on token type
-        if (['AOVolume', 'wARVolume'].includes(processName)) {
-            return rawValue / 1000000000000; // Remove 12 zeros for AO and wAR
-        } else if (processName === 'wUSDCVolume') {
-            return rawValue / 1000000; // Remove 6 zeros for wUSDC
-        }
-        return rawValue;
-    });
+    // Get the data values
+    const values = sortedData.map(d => d.count);
     
     // Update chart
     chart.data.labels = labels;
@@ -647,6 +826,44 @@ function createCombinedTooltipCallbacks(primaryProcess, secondaryProcess) {
             return context[0].label;
         }
     };
+}
+
+/**
+ * Updates the supply chart with wAR supply data
+ * @param {Array} supplyData - Array of supply data points
+ * @param {string} timeRange - The selected time range
+ */
+export function updateSupplyChart(supplyData, timeRange) {
+    const chart = charts['wARTotalSupply'];
+    if (!chart) {
+        console.error('No supply chart found');
+        return;
+    }
+    
+    if (!supplyData || supplyData.length === 0) {
+        console.warn('No supply data available');
+        return;
+    }
+    
+    // Filter by time range
+    const filteredData = filterDataByTimeRange(supplyData, timeRange);
+    
+    // Sort data by timestamp to ensure chronological order
+    const sortedData = [...filteredData].sort((a, b) => {
+        return new Date(a.timestamp) - new Date(b.timestamp);
+    });
+    
+    // Create labels and datasets (just wAR now)
+    const labels = sortedData.map(d => formatDate(new Date(d.timestamp)));
+    const wARSupply = sortedData.map(d => d.wARSupply);
+    
+    // Update chart with only wAR data
+    chart.data.labels = labels;
+    chart.data.datasets[0].data = wARSupply;
+    chart.data.datasets[0].label = 'wAR Total Supply';
+    
+    // Update the chart
+    chart.update('none');
 }
 
 /**
